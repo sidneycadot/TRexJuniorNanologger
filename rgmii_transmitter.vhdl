@@ -30,10 +30,10 @@ entity rgmii_transmitter is
         DATA_IN_VALID  : in std_logic;
         DATA_IN_READY  : out std_logic;
         --
-        PACKET_IN_BYTECOUNT : in  std_logic_vector(15 downto 0);
-        PACKET_IN_CHECKSUM  : in  std_logic_vector(15 downto 0);
-        PACKET_IN_VALID     : in  std_logic;
-        PACKET_IN_READY     : out std_logic
+        FRAME_METADATA_IN_OCTET_COUNT : in  std_logic_vector(15 downto 0);
+        FRAME_METADATA_IN_CHECKSUM    : in  std_logic_vector(15 downto 0);
+        FRAME_METADATA_IN_VALID       : in  std_logic;
+        FRAME_METADATA_IN_READY       : out std_logic
         --    
     );
 
@@ -107,9 +107,12 @@ architecture arch of rgmii_transmitter is
           r_txctl              : std_logic;
           r_txd                : std_logic_vector(7 downto 0);
           --
-          packet_in_ready      : std_logic;
-          packet_in_bytecount  : std_logic_vector(15 downto 0);
-          packet_in_checksum   : std_logic_vector(15 downto 0);
+          frame_metadata_in_ready       : std_logic;
+          frame_metadata_in_octet_count : std_logic_vector(15 downto 0);
+          frame_metadata_in_checksum    : std_logic_vector(15 downto 0);
+          --
+          udp_size         : std_logic_vector(15 downto 0);
+          ip_size          : std_logic_vector(15 downto 0);
           --
           offset_events   : FrameSequencerType;
           offset_padding  : FrameSequencerType;
@@ -129,9 +132,12 @@ architecture arch of rgmii_transmitter is
           r_data_in_ready    => '1',
           r_txctl            => '0',
           r_txd              => "00000000",
-          packet_in_ready    => '1',
-          packet_in_bytecount => (others => '-'),
-          packet_in_checksum  => (others => '-'),
+          frame_metadata_in_ready       => '1',
+          frame_metadata_in_octet_count => (others => '-'),
+          frame_metadata_in_checksum    => (others => '-'),
+          --
+          udp_size         => (others => '-'),
+          ip_size          => (others => '-'),
           --
           offset_events    => 0,
           offset_padding   => 0,
@@ -171,26 +177,30 @@ architecture arch of rgmii_transmitter is
         return r;
     end function ones_complement_subtract;
 
+    --function ones_complement_subtract(a: in std_logic_vector(15 downto 0); b: in std_logic_vector(15 downto 0)) return std_logic_vector is
+    -- Return (a + b) mod 65535, where 0 is represented as 0xffff.
+    --begin
+    --    return std_logic_vector(to_unsigned((to_integer(unsigned(a)) - to_integer(unsigned(b)) - 1) mod 65535 + 1, 16));
+    --end function ones_complement_subtract;
+
+
     function UpdateNextState(
-            current_state       : in StateType;
-            RESET               : in std_logic;
-            MAC_ADDRESS_SRC     : in std_logic_vector(47 downto 0);
-            MAC_ADDRESS_DST     : in std_logic_vector(47 downto 0);
-            IP_ADDRESS_SRC      : in std_logic_vector(31 downto 0);
-            IP_ADDRESS_DST      : in std_logic_vector(31 downto 0);
-            UDP_PORT_SRC        : in std_logic_vector(15 downto 0);
-            UDP_PORT_DST        : in std_logic_vector(15 downto 0);
-            DATA_IN             : in std_logic_vector(7 downto 0);
-            DATA_IN_VALID       : in std_logic;
-            PACKET_IN_BYTECOUNT : in std_logic_vector(15 downto 0);
-            PACKET_IN_CHECKSUM  : in std_logic_vector(15 downto 0);
-            PACKET_IN_VALID     : in std_logic
+            current_state                 : in StateType;
+            RESET                         : in std_logic;
+            MAC_ADDRESS_SRC               : in std_logic_vector(47 downto 0);
+            MAC_ADDRESS_DST               : in std_logic_vector(47 downto 0);
+            IP_ADDRESS_SRC                : in std_logic_vector(31 downto 0);
+            IP_ADDRESS_DST                : in std_logic_vector(31 downto 0);
+            UDP_PORT_SRC                  : in std_logic_vector(15 downto 0);
+            UDP_PORT_DST                  : in std_logic_vector(15 downto 0);
+            DATA_IN                       : in std_logic_vector(7 downto 0);
+            DATA_IN_VALID                 : in std_logic;
+            FRAME_METADATA_IN_OCTET_COUNT : in std_logic_vector(15 downto 0);
+            FRAME_METADATA_IN_CHECKSUM    : in std_logic_vector(15 downto 0);
+            FRAME_METADATA_IN_VALID       : in std_logic
         ) return StateType is
 
     variable state: StateType;
-
-    variable v_udp_size         : std_logic_vector(15 downto 0);
-    variable v_ip_size          : std_logic_vector(15 downto 0);
 
     variable proceed: boolean;
 
@@ -203,31 +213,30 @@ architecture arch of rgmii_transmitter is
             -- Start from current state.
             state := current_state;
 
-            if PACKET_IN_VALID = '1' and state.packet_in_ready = '1' then
-                state.packet_in_bytecount := PACKET_IN_BYTECOUNT;
-                state.packet_in_checksum  := PACKET_IN_CHECKSUM;
-                state.packet_in_ready := '0';
+            if FRAME_METADATA_IN_VALID = '1' and state.frame_metadata_in_ready = '1' then
                 --
-                state.offset_events   := 58;
-                state.offset_padding  := FrameSequencerType(58 + to_integer(unsigned(state.packet_in_bytecount)));
-                state.offset_crc      := maximum(state.offset_padding, 68);
-                state.offset_ifg      := state.offset_crc + 4;
-                state.offset_ifg_end  := state.offset_crc + 16;
-                state.offset_ifg_last := state.offset_crc + 15;
+                state.frame_metadata_in_octet_count := FRAME_METADATA_IN_OCTET_COUNT;
+                state.frame_metadata_in_checksum    := FRAME_METADATA_IN_CHECKSUM;
+                state.frame_metadata_in_ready := '0';
             end if;
-
-            v_udp_size := std_logic_vector(unsigned(state.packet_in_bytecount) + 16); --                  len(UDP header) + len(UDP payload).
-            v_ip_size  := std_logic_vector(unsigned(state.packet_in_bytecount) + 36); -- len(IP header) + len(UDP header) + len(UDP payload)
-
 
             state.r_data_in_ready := '0';
             proceed := true;
 
             case state.frame_sequencer is
-
                 when 0 =>
-                    if state.packet_in_ready = '0' then
+                    if state.frame_metadata_in_ready = '0' then
                         -- We have a valid packet specification.
+                        state.udp_size        := std_logic_vector(unsigned(state.frame_metadata_in_octet_count) + 16); --                  len(UDP header) + len(UDP payload).
+                        state.ip_size         := std_logic_vector(unsigned(state.frame_metadata_in_octet_count) + 36); -- len(IP header) + len(UDP header) + len(UDP payload)
+                        --
+                        state.offset_events   := 58;
+                        state.offset_padding  := FrameSequencerType(58 + to_integer(unsigned(state.frame_metadata_in_octet_count)));
+                        state.offset_crc      := maximum(state.offset_padding, 68);
+                        state.offset_ifg      := state.offset_crc + 4;
+                        state.offset_ifg_end  := state.offset_crc + 16;
+                        state.offset_ifg_last := state.offset_crc + 15;
+                        --
                         state.r_txctl := '1'; state.r_txd := "01010101";
                     else
                         -- We're waiting for a packet specification ...
@@ -258,8 +267,8 @@ architecture arch of rgmii_transmitter is
                 -- IP: Differentiated Services Code Point (DSCP) and Explicit Congestion Notification (ECN)
                 when 23       => state.r_txctl := '1'; state.r_txd := x"00";
                 -- IP: Total IP packet length (IP header + IP data) -- 20 (IP header) + 8 (UDP header) + length(UDP payload). This excludes any padding.
-                when 24       => state.r_txctl := '1'; state.r_txd := v_ip_size(15 downto 8); -- MSB
-                when 25       => state.r_txctl := '1'; state.r_txd := v_ip_size( 7 downto 0); -- LSB
+                when 24       => state.r_txctl := '1'; state.r_txd := state.ip_size(15 downto 8); -- MSB
+                when 25       => state.r_txctl := '1'; state.r_txd := state.ip_size( 7 downto 0); -- LSB
                 -- IP: Identification
                 when 26       => state.r_txctl := '1'; state.r_txd := std_logic_vector(state.ip_identification(15 downto 8)); -- MSB
                 when 27       => state.r_txctl := '1'; state.r_txd := std_logic_vector(state.ip_identification( 7 downto 0)); -- LSB
@@ -299,8 +308,8 @@ architecture arch of rgmii_transmitter is
                 when 44       => state.r_txctl := '1'; state.r_txd := UDP_PORT_DST(15 downto 8); -- MSB
                 when 45       => state.r_txctl := '1'; state.r_txd := UDP_PORT_DST( 7 downto 0); -- LSB
                 -- UDP: Length 26 == 8 (UDP header) + UDP payload
-                when 46       => state.r_txctl := '1'; state.r_txd := v_udp_size(15 downto 8); -- MSB
-                when 47       => state.r_txctl := '1'; state.r_txd := v_udp_size( 7 downto 0); -- LSB
+                when 46       => state.r_txctl := '1'; state.r_txd := state.udp_size(15 downto 8); -- MSB
+                when 47       => state.r_txctl := '1'; state.r_txd := state.udp_size( 7 downto 0); -- LSB
                 -- UDP: Checksum (zero if unused)
                 when 48       => state.r_txctl := '1'; state.r_txd := std_logic_vector(state.udp_checksum(15 downto 8)); -- MSB
                 when 49       => state.r_txctl := '1'; state.r_txd := std_logic_vector(state.udp_checksum( 7 downto 0)); -- LSB
@@ -314,7 +323,7 @@ architecture arch of rgmii_transmitter is
                 when 56       => state.r_txctl := '1'; state.r_txd := std_logic_vector(state.sequence_number(15 downto  8));
                 when 57       => state.r_txctl := '1'; state.r_txd := std_logic_vector(state.sequence_number( 7 downto  0)); -- LSB
 
-                    if state.packet_in_bytecount /= x"0000" then
+                    if state.frame_metadata_in_octet_count /= x"0000" then
                         state.r_data_in_ready := '1';
                     end if;
  
@@ -360,33 +369,33 @@ architecture arch of rgmii_transmitter is
             end if;
 
            case state.frame_sequencer is
-                when  0 => state.ip_header_checksum := ones_complement_subtract(x"ffff", x"4500");
-                when  1 => state.ip_header_checksum := ones_complement_subtract(state.ip_header_checksum, v_ip_size);
-                when  2 => state.ip_header_checksum := ones_complement_subtract(state.ip_header_checksum, state.ip_identification);
-                when  3 => state.ip_header_checksum := ones_complement_subtract(state.ip_header_checksum, x"0000");
-                when  4 => state.ip_header_checksum := ones_complement_subtract(state.ip_header_checksum, x"4011");
-                when  5 => state.ip_header_checksum := ones_complement_subtract(state.ip_header_checksum, IP_ADDRESS_SRC(31 downto 16));
-                when  6 => state.ip_header_checksum := ones_complement_subtract(state.ip_header_checksum, IP_ADDRESS_SRC(15 downto  0));
-                when  7 => state.ip_header_checksum := ones_complement_subtract(state.ip_header_checksum, IP_ADDRESS_DST(31 downto 16));
-                when  8 => state.ip_header_checksum := ones_complement_subtract(state.ip_header_checksum, IP_ADDRESS_DST(15 downto  0));
+                when  1 => state.ip_header_checksum := ones_complement_subtract(x"ffff", x"4500");
+                when  2 => state.ip_header_checksum := ones_complement_subtract(state.ip_header_checksum, state.ip_size);
+                when  3 => state.ip_header_checksum := ones_complement_subtract(state.ip_header_checksum, state.ip_identification);
+                when  4 => state.ip_header_checksum := ones_complement_subtract(state.ip_header_checksum, x"0000");
+                when  5 => state.ip_header_checksum := ones_complement_subtract(state.ip_header_checksum, x"4011");
+                when  6 => state.ip_header_checksum := ones_complement_subtract(state.ip_header_checksum, IP_ADDRESS_SRC(31 downto 16));
+                when  7 => state.ip_header_checksum := ones_complement_subtract(state.ip_header_checksum, IP_ADDRESS_SRC(15 downto  0));
+                when  8 => state.ip_header_checksum := ones_complement_subtract(state.ip_header_checksum, IP_ADDRESS_DST(31 downto 16));
+                when  9 => state.ip_header_checksum := ones_complement_subtract(state.ip_header_checksum, IP_ADDRESS_DST(15 downto  0));
                 when others => null;
             end case;
 
            case state.frame_sequencer is
-                when  0 => state.udp_checksum := ones_complement_subtract(x"ffff", x"0011");
-                when  1 => state.udp_checksum := ones_complement_subtract(state.udp_checksum, IP_ADDRESS_SRC(31 downto 16));
-                when  2 => state.udp_checksum := ones_complement_subtract(state.udp_checksum, IP_ADDRESS_SRC(15 downto  0));
-                when  3 => state.udp_checksum := ones_complement_subtract(state.udp_checksum, IP_ADDRESS_DST(31 downto 16));
-                when  4 => state.udp_checksum := ones_complement_subtract(state.udp_checksum, IP_ADDRESS_DST(15 downto  0));
-                when  5 => state.udp_checksum := ones_complement_subtract(state.udp_checksum, v_udp_size);
-                when  6 => state.udp_checksum := ones_complement_subtract(state.udp_checksum, v_udp_size);
-                when  7 => state.udp_checksum := ones_complement_subtract(state.udp_checksum, UDP_PORT_SRC);
-                when  8 => state.udp_checksum := ones_complement_subtract(state.udp_checksum, UDP_PORT_DST);
-                when  9 => state.udp_checksum := ones_complement_subtract(state.udp_checksum, state.sequence_number(63 downto 48));
-                when 10 => state.udp_checksum := ones_complement_subtract(state.udp_checksum, state.sequence_number(47 downto 32));
-                when 11 => state.udp_checksum := ones_complement_subtract(state.udp_checksum, state.sequence_number(31 downto 16));
-                when 12 => state.udp_checksum := ones_complement_subtract(state.udp_checksum, state.sequence_number(15 downto  0));
-                when 13 => state.udp_checksum := ones_complement_subtract(state.udp_checksum, state.packet_in_checksum);
+                when  1 => state.udp_checksum := ones_complement_subtract(x"ffff", x"0011");
+                when  2 => state.udp_checksum := ones_complement_subtract(state.udp_checksum, IP_ADDRESS_SRC(31 downto 16));
+                when  3 => state.udp_checksum := ones_complement_subtract(state.udp_checksum, IP_ADDRESS_SRC(15 downto  0));
+                when  4 => state.udp_checksum := ones_complement_subtract(state.udp_checksum, IP_ADDRESS_DST(31 downto 16));
+                when  5 => state.udp_checksum := ones_complement_subtract(state.udp_checksum, IP_ADDRESS_DST(15 downto  0));
+                when  6 => state.udp_checksum := ones_complement_subtract(state.udp_checksum, state.udp_size);
+                when  7 => state.udp_checksum := ones_complement_subtract(state.udp_checksum, state.udp_size);
+                when  8 => state.udp_checksum := ones_complement_subtract(state.udp_checksum, UDP_PORT_SRC);
+                when  9 => state.udp_checksum := ones_complement_subtract(state.udp_checksum, UDP_PORT_DST);
+                when 10 => state.udp_checksum := ones_complement_subtract(state.udp_checksum, state.sequence_number(63 downto 48));
+                when 11 => state.udp_checksum := ones_complement_subtract(state.udp_checksum, state.sequence_number(47 downto 32));
+                when 12 => state.udp_checksum := ones_complement_subtract(state.udp_checksum, state.sequence_number(31 downto 16));
+                when 13 => state.udp_checksum := ones_complement_subtract(state.udp_checksum, state.sequence_number(15 downto  0));
+                when 14 => state.udp_checksum := ones_complement_subtract(state.udp_checksum, state.frame_metadata_in_checksum);
                 when others => null;
             end case;
 
@@ -397,7 +406,7 @@ architecture arch of rgmii_transmitter is
                     state.ip_identification := std_logic_vector(unsigned(state.ip_identification) + 1);
                     state.sequence_number   := std_logic_vector(unsigned(state.sequence_number) + 1);
                     --
-                    state.packet_in_ready   := '1';
+                    state.frame_metadata_in_ready   := '1';
                 else
                     state.frame_sequencer := state.frame_sequencer + 1;
                 end if;
@@ -425,15 +434,15 @@ begin
             UDP_PORT_DST,
             DATA_IN,
             DATA_IN_VALID,
-            PACKET_IN_BYTECOUNT,
-            PACKET_IN_CHECKSUM,
-            PACKET_IN_VALID
+            FRAME_METADATA_IN_OCTET_COUNT,
+            FRAME_METADATA_IN_CHECKSUM,
+            FRAME_METADATA_IN_VALID
         );
 
     current_state <= next_state when rising_edge(TX_CLK_125_MHz);
 
-    DATA_IN_READY   <= current_state.r_data_in_ready;
-    PACKET_IN_READY <= current_state.packet_in_ready;
+    DATA_IN_READY           <= current_state.r_data_in_ready;
+    FRAME_METADATA_IN_READY <= current_state.frame_metadata_in_ready;
 
     -- Instantiate ODDR instances for TX clock, TX control, and 4 TX data bits.
 

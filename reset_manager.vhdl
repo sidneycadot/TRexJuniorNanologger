@@ -17,52 +17,31 @@ entity reset_manager is
         --
         ASYNC_MASTER_RESET : in std_logic;
         --
-        PPS_RESET              : out std_logic; -- synchronous to SAMPLE_CLK
-        SAMPLER_RESET          : out std_logic; -- synchronous to SAMPLE_CLK
-        TIMESTAMPER_RESET      : out std_logic; -- synchronous to SAMPLE_CLK
-        INPUT_FILTER_RESET     : out std_logic; -- synchronous to SAMPLE_CLK
-        ASYNC_FIFO_RESET       : out std_logic; -- synchronous to SAMPLE_CLK
-        EVENT_PROCESSOR_RESET  : out std_logic; -- synchronous to TX_CLK_125_MHz
-        EVENT_FILTER_RESET     : out std_logic; -- synchronous to TX_CLK_125_MHz
-        EVENTS_TO_OCTETS_RESET : out std_logic; -- synchronous to TX_CLK_125_MHz
-        SYNC_FIFO_RESET        : out std_logic; -- synchronous to TX_CLK_125_MHz
-        ETH_TX_RESET           : out std_logic  -- synchronous to TX_CLK_125_MHz
+        INPUT_SECTION_RESET     : out std_logic; -- synchronous to SAMPLE_CLK
+        ASYNCHRONOUS_FIFO_RESET : out std_logic; -- synchronous to SAMPLE_CLK
+        OUTPUT_SECTION_RESET    : out std_logic  -- synchronous to TX_CLK_125_MHz
     );
 end entity reset_manager;
 
 
 architecture arch of reset_manager is
 
-    type CounterType is range 0 to 119_999; -- 10 ms
+    type CounterType is range 0 to 59_999; -- 5 ms
 
     type StateType is record
             counter : CounterType;
             --
-            cmd_pps_reset              : std_logic;
-            cmd_sampler_reset          : std_logic;
-            cmd_timestamper_reset      : std_logic;
-            cmd_input_filter_reset     : std_logic;
-            cmd_async_fifo_reset       : std_logic;
-            cmd_event_processor_reset  : std_logic;
-            cmd_event_filter_reset     : std_logic;
-            cmd_events_to_octets_reset : std_logic;
-            cmd_sync_fifo_reset        : std_logic;
-            cmd_eth_tx_reset           : std_logic;
+            cmd_input_section_reset     : std_logic;
+            cmd_asynchronous_fifo_reset : std_logic;
+            cmd_output_section_reset    : std_logic;
          end record StateType;
 
     constant reset_state : StateType := (
             counter => 0,
             --
-            cmd_pps_reset              => '1',
-            cmd_sampler_reset          => '1',
-            cmd_timestamper_reset      => '1',
-            cmd_input_filter_reset     => '1',
-            cmd_async_fifo_reset       => '1',
-            cmd_event_processor_reset  => '1',
-            cmd_event_filter_reset     => '1',
-            cmd_events_to_octets_reset => '1',
-            cmd_sync_fifo_reset        => '1',
-            cmd_eth_tx_reset           => '1'
+            cmd_input_section_reset     => '1',
+            cmd_asynchronous_fifo_reset => '1',
+            cmd_output_section_reset    => '1'
         );
 
     function UpdateNextState(
@@ -85,17 +64,9 @@ architecture arch of reset_manager is
                 state.counter := state.counter + 1;
             end if;
 
-            state.cmd_sampler_reset          := '1' when state.counter < 1 * 12000 else '0';
-            state.cmd_input_filter_reset     := '1' when state.counter < 1 * 12000 else '0';
-            state.cmd_async_fifo_reset       := '1' when state.counter < 1 * 12000 else '0';
-            state.cmd_event_processor_reset  := '1' when state.counter < 1 * 12000 else '0';
-            state.cmd_event_filter_reset     := '1' when state.counter < 1 * 12000 else '0';
-            state.cmd_events_to_octets_reset := '1' when state.counter < 1 * 12000 else '0';
-            state.cmd_sync_fifo_reset        := '1' when state.counter < 1 * 12000 else '0';
-            state.cmd_eth_tx_reset           := '1' when state.counter < 1 * 12000 else '0';
-
-            state.cmd_pps_reset             := '1' when state.counter < 2 * 12000 else '0';
-            state.cmd_timestamper_reset     := '1' when state.counter < 2 * 24000 else '0';
+            state.cmd_output_section_reset    := '1' when state.counter < 1 * 12000 else '0';
+            state.cmd_asynchronous_fifo_reset := '1' when state.counter < 1 * 12000 else '0';
+            state.cmd_input_section_reset     := '1' when state.counter < 2 * 12000 else '0';
 
         end if; -- we're not resetting.
 
@@ -128,7 +99,7 @@ begin
             DEST_OUT => MASTER_RESET        -- 1-bit output: src_in synchronized to the destination clock domain. This output is registered.
         );
 
-    pps_reset_cdc : xpm_cdc_single
+    input_section_reset_cdc : xpm_cdc_single
         generic map (
             DEST_SYNC_FF   => 4, -- DECIMAL; range: 2-10
             INIT_SYNC_FF   => 0, -- DECIMAL; 0=disable simulation init values, 1=enable simulation init values
@@ -136,13 +107,13 @@ begin
             SRC_INPUT_REG  => 1  -- DECIMAL; 0=do not register input, 1=register input
         )
         port map (
-            SRC_CLK  => XTAL_CLK_12MHz,              -- 1-bit input: optional; required when SRC_INPUT_REG = 1
-            SRC_IN   => current_state.cmd_pps_reset, -- 1-bit input: Input signal to be synchronized to dest_clk domain.
-            DEST_CLK => SAMPLE_CLK,                  -- 1-bit input: Clock signal for the destination clock domain.
-            DEST_OUT => PPS_RESET                    -- 1-bit output: src_in synchronized to the destination clock domain. This output is registered.
+            SRC_CLK  => XTAL_CLK_12MHz,                        -- 1-bit input: optional; required when SRC_INPUT_REG = 1
+            SRC_IN   => current_state.cmd_input_section_reset, -- 1-bit input: Input signal to be synchronized to dest_clk domain.
+            DEST_CLK => SAMPLE_CLK,                            -- 1-bit input: Clock signal for the destination clock domain.
+            DEST_OUT => INPUT_SECTION_RESET                    -- 1-bit output: src_in synchronized to the destination clock domain. This output is registered.
         );
 
-    sampler_reset_cdc : xpm_cdc_single
+    asynchronous_fifo_reset_cdc : xpm_cdc_single
         generic map (
             DEST_SYNC_FF   => 4, -- DECIMAL; range: 2-10
             INIT_SYNC_FF   => 0, -- DECIMAL; 0=disable simulation init values, 1=enable simulation init values
@@ -150,13 +121,13 @@ begin
             SRC_INPUT_REG  => 1  -- DECIMAL; 0=do not register input, 1=register input
         )
         port map (
-            SRC_CLK  => XTAL_CLK_12MHz,                  -- 1-bit input: optional; required when SRC_INPUT_REG = 1
-            SRC_IN   => current_state.cmd_sampler_reset, -- 1-bit input: Input signal to be synchronized to dest_clk domain.
-            DEST_CLK => SAMPLE_CLK,                      -- 1-bit input: Clock signal for the destination clock domain.
-            DEST_OUT => SAMPLER_RESET                    -- 1-bit output: src_in synchronized to the destination clock domain. This output is registered.
+            SRC_CLK  => XTAL_CLK_12MHz,                            -- 1-bit input: optional; required when SRC_INPUT_REG = 1
+            SRC_IN   => current_state.cmd_asynchronous_fifo_reset, -- 1-bit input: Input signal to be synchronized to dest_clk domain.
+            DEST_CLK => SAMPLE_CLK,                                -- 1-bit input: Clock signal for the destination clock domain.
+            DEST_OUT => ASYNCHRONOUS_FIFO_RESET                    -- 1-bit output: src_in synchronized to the destination clock domain. This output is registered.
         );
 
-    timestamper_reset_cdc : xpm_cdc_single
+    output_section_reset_cdc : xpm_cdc_single
         generic map (
             DEST_SYNC_FF   => 4, -- DECIMAL; range: 2-10
             INIT_SYNC_FF   => 0, -- DECIMAL; 0=disable simulation init values, 1=enable simulation init values
@@ -164,108 +135,10 @@ begin
             SRC_INPUT_REG  => 1  -- DECIMAL; 0=do not register input, 1=register input
         )
         port map (
-            SRC_CLK  => XTAL_CLK_12MHz,                      -- 1-bit input: optional; required when SRC_INPUT_REG = 1
-            SRC_IN   => current_state.cmd_timestamper_reset, -- 1-bit input: Input signal to be synchronized to dest_clk domain.
-            DEST_CLK => SAMPLE_CLK,                          -- 1-bit input: Clock signal for the destination clock domain.
-            DEST_OUT => TIMESTAMPER_RESET                    -- 1-bit output: src_in synchronized to the destination clock domain. This output is registered.
-        );
-
-    input_filter_reset_cdc : xpm_cdc_single
-        generic map (
-            DEST_SYNC_FF   => 4, -- DECIMAL; range: 2-10
-            INIT_SYNC_FF   => 0, -- DECIMAL; 0=disable simulation init values, 1=enable simulation init values
-            SIM_ASSERT_CHK => 0, -- DECIMAL; 0=disable simulation messages, 1=enable simulation messages
-            SRC_INPUT_REG  => 1  -- DECIMAL; 0=do not register input, 1=register input
-        )
-        port map (
-            SRC_CLK  => XTAL_CLK_12MHz,                       -- 1-bit input: optional; required when SRC_INPUT_REG = 1
-            SRC_IN   => current_state.cmd_input_filter_reset, -- 1-bit input: Input signal to be synchronized to dest_clk domain.
-            DEST_CLK => SAMPLE_CLK,                           -- 1-bit input: Clock signal for the destination clock domain.
-            DEST_OUT => INPUT_FILTER_RESET                    -- 1-bit output: src_in synchronized to the destination clock domain. This output is registered.
-        );
-
-    async_fifo_reset_cdc : xpm_cdc_single
-        generic map (
-            DEST_SYNC_FF   => 4, -- DECIMAL; range: 2-10
-            INIT_SYNC_FF   => 0, -- DECIMAL; 0=disable simulation init values, 1=enable simulation init values
-            SIM_ASSERT_CHK => 0, -- DECIMAL; 0=disable simulation messages, 1=enable simulation messages
-            SRC_INPUT_REG  => 1  -- DECIMAL; 0=do not register input, 1=register input
-        )
-        port map (
-            SRC_CLK  => XTAL_CLK_12MHz,                     -- 1-bit input: optional; required when SRC_INPUT_REG = 1
-            SRC_IN   => current_state.cmd_async_fifo_reset, -- 1-bit input: Input signal to be synchronized to dest_clk domain.
-            DEST_CLK => SAMPLE_CLK,                         -- 1-bit input: Clock signal for the destination clock domain.
-            DEST_OUT => ASYNC_FIFO_RESET                    -- 1-bit output: src_in synchronized to the destination clock domain. This output is registered.
-        );
-
-    event_processor_reset_cdc : xpm_cdc_single
-        generic map (
-            DEST_SYNC_FF   => 4, -- DECIMAL; range: 2-10
-            INIT_SYNC_FF   => 0, -- DECIMAL; 0=disable simulation init values, 1=enable simulation init values
-            SIM_ASSERT_CHK => 0, -- DECIMAL; 0=disable simulation messages, 1=enable simulation messages
-            SRC_INPUT_REG  => 1  -- DECIMAL; 0=do not register input, 1=register input
-        )
-        port map (
-            SRC_CLK  => XTAL_CLK_12MHz,                          -- 1-bit input: optional; required when SRC_INPUT_REG = 1
-            SRC_IN   => current_state.cmd_event_processor_reset, -- 1-bit input: Input signal to be synchronized to dest_clk domain.
-            DEST_CLK => TX_CLK_125_MHz,                          -- 1-bit input: Clock signal for the destination clock domain.
-            DEST_OUT => EVENT_PROCESSOR_RESET                    -- 1-bit output: src_in synchronized to the destination clock domain. This output is registered.
-        );
-
-    event_filter_reset_cdc : xpm_cdc_single
-        generic map (
-            DEST_SYNC_FF   => 4, -- DECIMAL; range: 2-10
-            INIT_SYNC_FF   => 0, -- DECIMAL; 0=disable simulation init values, 1=enable simulation init values
-            SIM_ASSERT_CHK => 0, -- DECIMAL; 0=disable simulation messages, 1=enable simulation messages
-            SRC_INPUT_REG  => 1  -- DECIMAL; 0=do not register input, 1=register input
-        )
-        port map (
-            SRC_CLK  => XTAL_CLK_12MHz,                       -- 1-bit input: optional; required when SRC_INPUT_REG = 1
-            SRC_IN   => current_state.cmd_event_filter_reset, -- 1-bit input: Input signal to be synchronized to dest_clk domain.
-            DEST_CLK => TX_CLK_125_MHz,                       -- 1-bit input: Clock signal for the destination clock domain.
-            DEST_OUT => EVENT_FILTER_RESET                    -- 1-bit output: src_in synchronized to the destination clock domain. This output is registered.
-        );
-
-    events_to_octets_reset_cdc : xpm_cdc_single
-        generic map (
-            DEST_SYNC_FF   => 4, -- DECIMAL; range: 2-10
-            INIT_SYNC_FF   => 0, -- DECIMAL; 0=disable simulation init values, 1=enable simulation init values
-            SIM_ASSERT_CHK => 0, -- DECIMAL; 0=disable simulation messages, 1=enable simulation messages
-            SRC_INPUT_REG  => 1  -- DECIMAL; 0=do not register input, 1=register input
-        )
-        port map (
-            SRC_CLK  => XTAL_CLK_12MHz,                           -- 1-bit input: optional; required when SRC_INPUT_REG = 1
-            SRC_IN   => current_state.cmd_events_to_octets_reset, -- 1-bit input: Input signal to be synchronized to dest_clk domain.
-            DEST_CLK => TX_CLK_125_MHz,                           -- 1-bit input: Clock signal for the destination clock domain.
-            DEST_OUT => EVENTS_TO_OCTETS_RESET                    -- 1-bit output: src_in synchronized to the destination clock domain. This output is registered.
-        );
-
-    sync_fifo_reset_cdc : xpm_cdc_single
-        generic map (
-            DEST_SYNC_FF   => 4, -- DECIMAL; range: 2-10
-            INIT_SYNC_FF   => 0, -- DECIMAL; 0=disable simulation init values, 1=enable simulation init values
-            SIM_ASSERT_CHK => 0, -- DECIMAL; 0=disable simulation messages, 1=enable simulation messages
-            SRC_INPUT_REG  => 1  -- DECIMAL; 0=do not register input, 1=register input
-        )
-        port map (
-            SRC_CLK  => XTAL_CLK_12MHz,                    -- 1-bit input: optional; required when SRC_INPUT_REG = 1
-            SRC_IN   => current_state.cmd_sync_fifo_reset, -- 1-bit input: Input signal to be synchronized to dest_clk domain.
-            DEST_CLK => TX_CLK_125_MHz,                    -- 1-bit input: Clock signal for the destination clock domain.
-            DEST_OUT => SYNC_FIFO_RESET                    -- 1-bit output: src_in synchronized to the destination clock domain. This output is registered.
-        );
-
-    eth_rx_reset_cdc : xpm_cdc_single
-        generic map (
-            DEST_SYNC_FF   => 4, -- DECIMAL; range: 2-10
-            INIT_SYNC_FF   => 0, -- DECIMAL; 0=disable simulation init values, 1=enable simulation init values
-            SIM_ASSERT_CHK => 0, -- DECIMAL; 0=disable simulation messages, 1=enable simulation messages
-            SRC_INPUT_REG  => 1  -- DECIMAL; 0=do not register input, 1=register input
-        )
-        port map (
-            SRC_CLK  => XTAL_CLK_12MHz,                 -- 1-bit input: optional; required when SRC_INPUT_REG = 1
-            SRC_IN   => current_state.cmd_eth_tx_reset, -- 1-bit input: Input signal to be synchronized to dest_clk domain.
-            DEST_CLK => TX_CLK_125_MHz,                 -- 1-bit input: Clock signal for the destination clock domain.
-            DEST_OUT => ETH_TX_RESET                    -- 1-bit output: src_in synchronized to the destination clock domain. This output is registered.
+            SRC_CLK  => XTAL_CLK_12MHz,                         -- 1-bit input: optional; required when SRC_INPUT_REG = 1
+            SRC_IN   => current_state.cmd_output_section_reset, -- 1-bit input: Input signal to be synchronized to dest_clk domain.
+            DEST_CLK => TX_CLK_125_MHz,                         -- 1-bit input: Clock signal for the destination clock domain.
+            DEST_OUT => OUTPUT_SECTION_RESET                    -- 1-bit output: src_in synchronized to the destination clock domain. This output is registered.
         );
 
 end architecture arch;

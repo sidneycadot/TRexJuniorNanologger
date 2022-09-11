@@ -11,7 +11,7 @@ entity synchronous_fifo is
         CLK   : in std_logic;
         RESET : in std_logic;
         --
-        FIFO_IN_DATA        : in  std_logic_vector(63 downto 0);
+        FIFO_IN_DATA        : in  std_logic_vector(7 downto 0);
         FIFO_IN_DATA_VALID  : in  std_logic;
         FIFO_IN_DATA_READY  : out std_logic;
         --
@@ -320,7 +320,7 @@ begin
             SIM_ASSERT_CHK      => 0,        -- DECIMAL; 0=disable simulation messages, 1=enable simulation messages
             USE_ADV_FEATURES    => "1000",   -- String
             WAKEUP_TIME         => 0,        -- DECIMAL
-            WRITE_DATA_WIDTH    => 64,       -- DECIMAL
+            WRITE_DATA_WIDTH    => 8,        -- DECIMAL
             WR_DATA_COUNT_WIDTH => 13        -- DECIMAL
    )
    port map (
